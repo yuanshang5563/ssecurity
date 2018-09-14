@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans:beans xmlns="http://www.springframework.org/schema/security"
+             xmlns:beans="http://www.springframework.org/schema/beans"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:sec="http://www.springframework.org/schema/security"
+             xsi:schemaLocation="http://www.springframework.org/schema/beans
+                        http://www.springframework.org/schema/beans/spring-beans-3.0.xsd
+                        http://www.springframework.org/schema/context
+                        http://www.springframework.org/schema/context/spring-context-3.1.xsd
+                        http://www.springframework.org/schema/tx
+                        http://www.springframework.org/schema/tx/spring-tx-3.0.xsd
+                        http://www.springframework.org/schema/security
+                        http://www.springframework.org/schema/security/spring-security.xsd">
+
+
+    <!-- 配置不过滤的资源（静态资源及登录相关）.是忽略拦截某些资源的意思，主要是针对静态资源 -->
+    <http pattern="/**/*.css" security="none"></http>
+    <http pattern="/**/*.jpg" security="none"></http>
+    <http pattern="/**/*.jpeg" security="none"></http>
+    <http pattern="/**/*.gif" security="none"></http>
+    <http pattern="/**/*.png" security="none"></http>
+    <http pattern="/js/*.js" security="none"></http>
+
+    <http pattern="/login.jsp" security="none"></http>
+    <http pattern="/getCode" security="none" /><!-- 不过滤验证码 -->
+    <http pattern="/test/**" security="none"></http><!-- 不过滤测试内容 -->
+
+    <http auto-config="false" use-expressions="true">
+
+        <!--<intercept-url pattern="/login.jsp" access="permitAll" />-->
+        <!-- 表示访问app.jsp时，需要ROLE_SERVICE权限 -->
+        <!--<intercept-url pattern="/adminPage.jsp" access="hasRole('ROLE_ADMIN')"></intercept-url>-->
+        <!--表示访问任何资源都需要ROLE_ADMIN权限。-->
+       <!-- <intercept-url pattern="/**" access="hasRole('ROLE_USER')"></intercept-url>-->
+
+
+        <!--
+            登陆页面肯定是不能拦截的，任何人都应该可以访问，
+            <intercept-url pattern="/login.jsp" access="IS_AUTHENTICATED_ANONYMOUSLY" />配置表示允许匿名用户访问，
+            就是不用身份都可以访问；
+            还有另一种配置方式：<http pattern="/login.jsp" security="none"></http>，这种配置达到的目的都是一样的。
+        -->
+
+        <!--
+            form-login这个标签是配置登陆页面的，其中的属性login-page是配置登陆页面的，
+            default-target-url配置登陆成功后跳转到的页面，
+            authentication-failure-url配置认证失败后的跳转页面。
+
+            form-login标签中还有一个特别要注意的属性use-expressions，如果设置为true，
+            这配置access就要做相应的改变，否则项目启动的时候会报错。
+            如果use-expressns="true"时，则表示改为 SpEL 表达式。 SpEL 允许使用特定的访问控制规则表达式语言。
+            与简单的字符串如 ROLE_USER 不同，配置文件可以指明表达式语言触发方法调用、引用系统属性、计算机值等等。
+            如 ：<intercept-url pattern="/login.jsp" access="permitAll" />
+        -->
+        <form-login login-page="/login.jsp" default-target-url="/index.jsp"
+                    authentication-failure-url="/login.jsp?error=true"></form-login>
+
+        <!--
+            logout这个标签用来配置退出或者注销，其中的属性invalidate-session，
+            配置否是要清除session，logout-success-url配置注销成功后的跳转页面，
+            logout-url提交退出或者注销的地址，因此我们在配置退出或者注销的时候，
+            只需要将url设置为/j_spring_security_logout即可，这个地址也是security内部实现了的。
+        -->
+        <logout invalidate-session="true" logout-success-url="/login.jsp"
+                logout-url="/j_spring_security_logout"></logout>
+
+        <!--
+            通过配置custom-filter来增加过滤器，
+            before="FILTER_SECURITY_INTERCEPTOR"表示在Springsecurity默认的过滤器之前执行
+        -->
+        <custom-filter ref="filterSecurityInterceptor" before="FILTER_SECURITY_INTERCEPTOR"></custom-filter>
+
+        <!-- max-sessions只容许一个账号登录，error-if-maximum-exceeded 后面账号登录后踢出前一个账号，
+              expired-url session过期跳转界面
+              如果concurrency-control标签配置了error-if-maximum-exceeded="true"，max-sessions="1"，
+              那么第二次登录时，是登录不了的。如果error-if-maximum-exceeded="false"，
+              那么第二次是能够登录到系统的，但是第一个登录的账号再次发起请求时，会跳转到expired-url配置的url中-->
+        <session-management session-authentication-error-url="/login.jsp">
+            <concurrency-control max-sessions="1" error-if-maximum-exceeded="false"
+                                 expired-url="/login.jsp" session-registry-ref="sessionRegistry" />
+        </session-management>
+
+        <expression-handler ref="webexpressionHandler" ></expression-handler>
+
+    </http>
+
+    <!-- 导入数据源 -->
+    <beans:import resource="applicationContext-dataSource.xml"></beans:import>
+
+    <beans:bean id="sessionRegistry" class="org.springframework.security.core.session.SessionRegistryImpl"/>
+    <!--配置web端使用权限控制-->
+    <beans:bean id="webexpressionHandler" class="org.springframework.security.web.access.expression.DefaultWebSecurityExpressionHandler"/>
+
+    <!--========================新增内容=======================================================-->
+    <beans:bean id="bulider" class="cn.quan.ssm.sec.JdbcRequestMapBulider">
+        <beans:property name="dataSource" ref="mysqlDataSource"></beans:property>
+        <beans:property name="resourceQuery"
+                        value="select re.res_string,r.`name` from role r,resc re,resc_role rr
+                                where r.id=rr.role_id and re.id=rr.resc_id"></beans:property>
+    </beans:bean>
+
+    <beans:bean id="filterSecurityInterceptor"
+                class="org.springframework.security.web.access.intercept.FilterSecurityInterceptor">
+        <!-- 用户拥有的权限 -->
+        <beans:property name="accessDecisionManager" ref="accessDecisionManager" />
+        <!-- 用户是否拥有所请求资源的权限 -->
+        <beans:property name="authenticationManager" ref="authenticationManager" />
+        <!-- 资源与权限对应关系 -->
+        <beans:property name="securityMetadataSource" ref="securityMetadataSource" />
+    </beans:bean>
+
+    <!--授权管理器-->
+    <beans:bean id="accessDecisionManager" class="cn.quan.ssm.sec.dao.MyAccessDecisionManager" />
+
+
+    <!--========================新增内容=======================================================-->
+    <!--认证管理-->
+    <authentication-manager alias="authenticationManager">
+        <authentication-provider>
+            <jdbc-user-service data-source-ref="mysqlDataSource" id="userService"
+                  users-by-username-query="select username,`password`,`status` as enabled from `user` where username = ?"
+                  authorities-by-username-query="select `user`.username,role.`name`
+                  from `user`,role,user_role
+                  where `user`.id=user_role.user_id and user_role.role_id=role.id and `user`.username = ?" />
+
+        </authentication-provider>
+    </authentication-manager>
+
+    <!--自定义的切入点-->
+    <beans:bean id="securityMetadataSource"
+                class="cn.quan.ssm.sec.dao.MyFilterInvocationSecurityMetadataSource">
+        <beans:property name="bulider" ref="bulider"></beans:property>
+    </beans:bean>
+
+
+
+</beans:beans>
